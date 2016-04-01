@@ -14,10 +14,7 @@ set( Boost_Libs )
 ADD_DEFINITIONS(-D_BIND_TO_CURRENT_MFC_VERSION=1 -D_BIND_TO_CURRENT_CRT_VERSION=1)
 
 set( SOURCE_FILES
-	who_is_on.cpp
-	stdafx.cpp
-	stdafx.h
-	targetver.h
+	who_is_on.cpp	
 )
 
 include_directories( SYSTEM ${Boost_INCLUDE_DIRS} )

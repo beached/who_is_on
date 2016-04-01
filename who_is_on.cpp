@@ -25,14 +25,13 @@ SOFTWARE.
 #ifndef UNICODE
 #define UNICODE
 #endif
+#include <exception>
 #include <iostream>
 #include <sstream>
 #include <comdef.h>
 #include <Wbemidl.h>
-#include <exception>
 #include <boost/algorithm/string.hpp>
 #include <boost/optional.hpp>
-#include <boost/lexical_cast.hpp>
 #include <boost/scope_exit.hpp>
 
 #pragma comment(lib, "wbemuuid.lib")
@@ -41,6 +40,7 @@ SOFTWARE.
 #include <wincred.h>
 #include <strsafe.h>
 #include <boost/utility/string_ref.hpp>
+#include <atlbase.h>
 
 template<typename T>
 struct GetValue {
@@ -52,7 +52,7 @@ struct GetValue {
 };
 
 template<typename T>
-void validate_variant_type( VARIANT const & v, T vt ) {	
+void validate_variant_type( VARIANT const & v, T vt ) {
 	if( v.vt != vt ) {
 		std::stringstream ss;
 		ss << "Missmatched type for get_value: requested->" << vt << " from type->" << v.vt;
@@ -66,7 +66,7 @@ bool is_null( VARIANT const & v ) {
 
 template<>
 struct GetValue<std::wstring> {
-	std::wstring operator( )( VARIANT const & v ) {
+	std::wstring operator( )( VARIANT const & v ) const {
 		if( is_null( v ) ) {
 			return L"";
 		}
@@ -77,8 +77,8 @@ struct GetValue<std::wstring> {
 
 template<>
 struct GetValue<unsigned int> {
-	unsigned int operator( )( VARIANT const & v ) {
-		validate_variant_type( v, VT_UINT );		
+	unsigned int operator( )( VARIANT const & v ) const {
+		validate_variant_type( v, VT_UINT );
 		return v.uintVal;
 	}
 };
@@ -107,7 +107,7 @@ boost::optional<T> find_value( std::wstring const & value, boost::wstring_ref wh
 		return boost::optional<T>( );
 	}
 	pos += what.size( );
-	
+
 	pos = value.find_first_not_of( L" \t\r\n", pos );
 	if( std::wstring::npos == pos ) {
 		// No non-blanks
@@ -175,7 +175,7 @@ struct sec_cstr {
 
 struct QueryParam {
 	std::wstring name;
-	virtual ~QueryParam( ) = 0;	
+	virtual ~QueryParam( ) = 0;
 };
 
 struct StringQueryParam: public QueryParam {
@@ -222,7 +222,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		nullptr,                        // Authentication info
 		EOAC_NONE,                   // Additional capabilities 
 		nullptr                         // Reserved
-		);
+	);
 
 
 	if( FAILED( hres ) ) {
@@ -234,7 +234,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	// Step 3: ---------------------------------------------------
 	// Obtain the initial locator to WMI -------------------------
 
-	IWbemLocator *pLoc = nullptr;
+	CComPtr<IWbemLocator> pLoc = nullptr;
 
 	hres = CoCreateInstance( CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_IWbemLocator, (LPVOID *)&pLoc );
 
@@ -247,7 +247,8 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	// Step 4: -----------------------------------------------------
 	// Connect to WMI through the IWbemLocator::ConnectServer method
 
-	IWbemServices *pSvc = nullptr;
+
+	CComPtr<IWbemServices> pSvc = nullptr;
 
 	// Get the user name and password for the remote computer
 	bool useToken = false;
@@ -259,7 +260,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	sec_cstr<wchar_t, CREDUI_MAX_USERNAME_LENGTH + 1> pszAuthority;
 
 	if( prompt_credentials ) {
-		CREDUI_INFO cui{};
+		CREDUI_INFO cui { };
 		cui.cbSize = sizeof( CREDUI_INFO );
 		cui.hwndParent = nullptr;
 		// Ensure that MessageText and CaptionText identify
@@ -287,7 +288,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			useToken = true;
 		} else if( dwErr ) {
 			std::cerr << "Did not get credentials " << dwErr << std::endl;
-			pLoc->Release( );
+			pLoc.Release( );
 			CoUninitialize( );
 			return EXIT_FAILURE;
 		}
@@ -317,11 +318,11 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			_bstr_t( useNTLM ? nullptr : pszAuthority.value ),// Authority        
 			nullptr,                              // Context object 
 			&pSvc                              // IWbemServices proxy
-			);
+		);
 	}
 	if( FAILED( hres ) ) {
 		std::cerr << "Could not connect. Error code = 0x" << std::hex << hres << std::endl;
-		pLoc->Release( );
+		pLoc.Release( );
 		CoUninitialize( );
 		return EXIT_FAILURE;                // Program has failed.
 	}
@@ -332,6 +333,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	COAUTHIDENTITY *userAcct = nullptr;
 	COAUTHIDENTITY authIdent;
 
+
 	if( !useToken ) {
 		memset( &authIdent, 0, sizeof( COAUTHIDENTITY ) );
 		authIdent.PasswordLength = wcslen( pszPwd.value );
@@ -340,8 +342,8 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		LPWSTR slash = wcschr( pszName.value, L'\\' );
 		if( nullptr == slash ) {
 			std::cerr << "Could not create Auth identity. No domain specified\n";
-			pSvc->Release( );
-			pLoc->Release( );
+			pSvc.Release( );
+			pLoc.Release( );
 			CoUninitialize( );
 			return EXIT_FAILURE;               // Program has failed.
 		}
@@ -370,12 +372,12 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		RPC_C_IMP_LEVEL_IMPERSONATE,    // RPC_C_IMP_LEVEL_xxx
 		userAcct,                       // client identity
 		EOAC_NONE                       // proxy capabilities 
-		);
+	);
 
 	if( FAILED( hres ) ) {
 		std::cerr << "Could not set proxy blanket. Error code = 0x" << std::hex << hres << std::endl;
-		pSvc->Release( );
-		pLoc->Release( );
+		pSvc.Release( );
+		pLoc.Release( );
 		CoUninitialize( );
 		return EXIT_FAILURE;               // Program has failed.
 	}
@@ -384,7 +386,8 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	// Use the IWbemServices pointer to make requests of WMI ----
 	std::string const wmi_query = "Select * from Win32_NTLogEvent Where Logfile='Security' And (EventCode=4647 Or EventCode=4624)";
 	// For example, get the name of the operating system
-	IEnumWbemClassObject* pEnumerator = nullptr;
+
+	CComPtr<IEnumWbemClassObject> pEnumerator = nullptr;
 	hres = pSvc->ExecQuery(
 		bstr_t( "WQL" ),
 		bstr_t( wmi_query.c_str( ) ),
@@ -394,8 +397,8 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 	if( FAILED( hres ) ) {
 		std::cerr << "Query for Security Eventlog." << " Error code = 0x" << std::hex << hres << std::endl;
-		pSvc->Release( );
-		pLoc->Release( );
+		pSvc.Release( );
+		pLoc.Release( );
 		CoUninitialize( );
 		return EXIT_FAILURE;               // Program has failed.
 	}
@@ -411,13 +414,13 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		RPC_C_IMP_LEVEL_IMPERSONATE,    // RPC_C_IMP_LEVEL_xxx
 		userAcct,                       // client identity
 		EOAC_NONE                       // proxy capabilities 
-		);
+	);
 
 	if( FAILED( hres ) ) {
 		std::cerr << "Could not set proxy blanket on enumerator. Error code = 0x" << std::hex << hres << std::endl;
-		pEnumerator->Release( );
-		pSvc->Release( );
-		pLoc->Release( );
+		pEnumerator.Release( );
+		pSvc.Release( );
+		pLoc.Release( );
 		CoUninitialize( );
 		return EXIT_FAILURE;               // Program has failed.
 	}
@@ -426,7 +429,8 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 	// Step 9: -------------------------------------------------
 	// Get the data from the query in step 7 -------------------
-	IWbemClassObject *pclsObj = nullptr;
+
+	CComPtr<IWbemClassObject> pclsObj = nullptr;
 	ULONG uReturn = 0;
 	GetValue<std::wstring> show_str;
 	GetValue<int32_t> show_int32;
@@ -437,26 +441,19 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 	while( pEnumerator ) {
 		auto hr = pEnumerator->Next( WBEM_INFINITE, 1, &pclsObj, &uReturn );
-				if( 0 == uReturn ) {
+		if( FAILED( hr ) ) {
+			std::cerr << "Error code = 0x" << std::hex << hr << std::endl;
 			break;
-		}
-
-		VARIANT vtProp;
-
-		/*
-		VariantClear( &vtProp );
-
-		pclsObj->Release( );
-		pclsObj = nullptr;
-		*/
-		{
-			BOOST_SCOPE_EXIT_ALL( & ) {
+		} else if( 0 == uReturn ) {
+			break;
+		} else {
+			VARIANT vtProp;
+			BOOST_SCOPE_EXIT_ALL( &) {
 				VariantClear( &vtProp );
-
-				pclsObj->Release( );
+				pclsObj.Release( );
 				pclsObj = nullptr;
 			};
-				hr = pclsObj->Get( L"EventCode", 0, &vtProp, 0, 0 );
+			hr = pclsObj->Get( L"EventCode", 0, &vtProp, 0, 0 );
 			if( FAILED( hr ) ) {
 				std::cerr << "Error code = 0x" << std::hex << hr << std::endl;
 				break;
@@ -466,14 +463,14 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			boost::optional<std::wstring> account_domain;
 
 			{
-				hr = pclsObj->Get( L"Message", 0, &vtProp, 0, 0 );
+				hr = pclsObj->Get( L"Message", 0, &vtProp, nullptr, nullptr );
 				if( FAILED( hr ) ) {
 					std::cerr << "Error code = 0x" << std::hex << hr << std::endl;
 					break;
 				}
 				auto const msg = show_str( vtProp );
 				if( 4624 == event_code ) {	// logon event id
-					// Only want logon type 2, interactive					
+											// Only want logon type 2, interactive					
 					auto logon_type = find_logon_type( msg );
 					if( !logon_type || *logon_type != 2 ) {
 						continue;
@@ -519,11 +516,11 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	// Cleanup
 	// ========
 
-	pSvc->Release( );
-	pLoc->Release( );
-	pEnumerator->Release( );
+	pSvc.Release( );
+	pLoc.Release( );
+	pEnumerator.Release( );
 	if( pclsObj ) {
-		pclsObj->Release( );
+		pclsObj.Release( );
 	}
 
 	CoUninitialize( );
