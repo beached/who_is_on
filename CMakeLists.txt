@@ -14,6 +14,8 @@ set( Boost_Libs )
 ADD_DEFINITIONS(-D_BIND_TO_CURRENT_MFC_VERSION=1 -D_BIND_TO_CURRENT_CRT_VERSION=1)
 
 set( SOURCE_FILES
+	helpers.cpp
+	helpers.h
 	who_is_on.cpp	
 )
 
