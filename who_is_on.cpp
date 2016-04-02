@@ -25,6 +25,7 @@
 #define UNICODE
 #endif
 #include <exception>
+#include <boost/program_options.hpp>
 #include <iostream>
 #include <sstream>
 #include <comdef.h>
@@ -40,69 +41,78 @@
 #include <atlbase.h>
 #include "helpers.h"
 
+std::wstring parse_stringtime( boost::wstring_ref time_string ) {
+	std::wstringstream wss;
 
-template<typename T>
-bool compare( boost::optional<T> const & value1, T const value2 ) {
-	auto result = static_cast<bool>(value1);
-	auto const & v1 = *value1;
-	result = result && v1 == value2;
-	return result;
+	auto year = time_string.substr( 0, 4 );
+	auto month = time_string.substr( 4, 2 );
+	auto day = time_string.substr( 6, 2 );
+	auto hour = time_string.substr( 8, 2 );
+	auto minute = time_string.substr( 10, 2 );
+	auto second = time_string.substr( 12, 2 );
+
+	wss << year << L"/" << month;
+	wss << L"/" << day << L"/" << hour;
+	wss << L":" << minute << L":" << second;
+
+	return wss.str( );
 }
 
-bool compare( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 ) {
-	auto const & v1 = *value1;
-	auto result = static_cast<bool>( value1 );
-	result = result && v1.compare( value2.data( ) ) == 0;
-	return result;
-}
+struct result_row {
+	double sort_key;
+	std::wstring timestamp;
+	std::wstring user_name;
+	std::wstring computer_name;
+	std::wstring category;
+	int event_code;	
+};	// struct result_row;
 
-template<typename T, typename U>
-T assign( boost::optional<T> v, U def_value ) {
-	if( v ) {
-		return *v;
-	} else {
-		return def_value;
-	}
+bool operator<( result_row const & lhs, result_row const & rhs ) {
+	return lhs.sort_key < rhs.sort_key;
 }
-
-template<typename T>
-bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, T & out_value ) {
-	CComVariant vtProp;
-	auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
-	if( FAILED( hr ) ) {
-		std::wcerr << L"Error code = 0x" << std::hex << hr << std::endl;
-		return false;
-	}
-	out_value = helpers::get_number<T>( vtProp );
-	return true;
-}
-
-bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, std::wstring & out_value ) {
-	CComVariant vtProp;
-	auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
-	if( FAILED( hr ) ) {
-		std::wcerr << L"Error code = 0x" << std::hex << hr << std::endl;
-		return false;
-	}
-	out_value = helpers::get_string( vtProp );
-	return true;
-}
-
 
 int __cdecl wmain( int argc, wchar_t *argv[] ) {
+	bool show_header;
+	std::wstring remote_computer_name;
+	namespace po = boost::program_options;
+	po::options_description desc( "Allowed options" );
+	desc.add_options( )
+		("help", "produce help message")
+		("prompt", "prompt for network credentials")
+		("show_header", "show field header in output")
+		("computer_name", po::wvalue<std::wstring>( &remote_computer_name )->required( ), "Host name of computer to connect to.  Use . for local machine");
+
+	po::positional_options_description positional_options;
+	positional_options.add( "computer_name", 1 );
+
+	po::variables_map vm;
 	auto prompt_credentials = false;
-	if( argc < 2 ) {
-		std::cerr << "Must specify computer name on command line e.g " << argv[0] << " COMPUTERNAME\n";
-	} else if( argc >= 3 ) {
-		prompt_credentials = 0 == wcscmp( L"prompt", argv[2] );
+	try {
+		po::store( po::wcommand_line_parser( argc, argv ).options( desc ).positional( positional_options ).run( ), vm );
+		po::notify( vm );
+
+
+		if( vm.count( "help" ) ) {
+			std::cout << desc << std::endl;
+			return EXIT_SUCCESS;
+		}
+		prompt_credentials = vm.count( "prompt" ) != 0;
+		show_header = vm.count( "show_header" ) != 0;
+	} catch( po::required_option& e ) {
+		std::cerr << "ERROR: " << e.what( ) << std::endl << std::endl;
+		exit( EXIT_FAILURE );
+	} catch( boost::program_options::error& e ) {
+		std::cerr << "ERROR: " << e.what( ) << std::endl << std::endl;
+		exit( EXIT_FAILURE );
 	}
+
 	// Step 1: --------------------------------------------------
 	// Initialize COM. ------------------------------------------
 
 	auto hres = CoInitializeEx( nullptr, COINIT_MULTITHREADED );
 	if( FAILED( hres ) ) {
 		std::cerr << "Failed to initialize COM library. Error code = 0x" << std::hex << hres << std::endl;
-		return EXIT_FAILURE;            
+		return EXIT_FAILURE;
 	}
 	BOOST_SCOPE_EXIT_ALL( &) {
 		CoUninitialize( );
@@ -111,22 +121,9 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	// Step 2: --------------------------------------------------
 	// Set general COM security levels --------------------------
 
-	hres = CoInitializeSecurity(
-		nullptr,
-		-1,                          // COM authentication
-		nullptr,                        // Authentication services
-		nullptr,                        // Reserved
-		RPC_C_AUTHN_LEVEL_DEFAULT,   // Default authentication 
-		RPC_C_IMP_LEVEL_IDENTIFY,    // Default Impersonation  
-		nullptr,                        // Authentication info
-		EOAC_NONE,                   // Additional capabilities 
-		nullptr                         // Reserved
-	);
-
-
-	if( FAILED( hres ) ) {
+	if( FAILED( hres = CoInitializeSecurity( nullptr, -1, nullptr, nullptr, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IDENTIFY, nullptr, EOAC_NONE, nullptr ) ) ) {
 		std::cerr << "Failed to initialize security. Error code = 0x" << std::hex << hres << std::endl;
-		return EXIT_FAILURE;                    // Program has failed.
+		return EXIT_FAILURE;
 	}
 
 	// Step 3: ---------------------------------------------------
@@ -134,11 +131,9 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 	CComPtr<IWbemLocator> pLoc = nullptr;
 
-	hres = CoCreateInstance( CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator, reinterpret_cast<LPVOID *>(&pLoc) );
-
-	if( FAILED( hres ) ) {
+	if( FAILED( hres = CoCreateInstance( CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator, reinterpret_cast<LPVOID *>(&pLoc) ) ) ) {
 		std::cerr << "Failed to create IWbemLocator object. Err code = 0x" << std::hex << hres << std::endl;
-		return EXIT_FAILURE;                 // Program has failed.
+		return EXIT_FAILURE;
 	}
 
 	// Step 4: -----------------------------------------------------
@@ -168,20 +163,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		cui.hbmBanner = nullptr;
 		BOOL fSave = FALSE;
 
-		auto dwErr = CredUIPromptForCredentials(
-			&cui,                             // CREDUI_INFO structure
-			TEXT( "" ),                         // Target for credentials
-			nullptr,                             // Reserved
-			0,                                // Reason
-			pszName.value,                          // User name
-			pszName.size( ),     // Max number for user name
-			pszPwd.value,                           // Password
-			pszPwd.size( ),	// Max number for password
-			&fSave,                           // State of save check box
-			CREDUI_FLAGS_GENERIC_CREDENTIALS |// flags
-			CREDUI_FLAGS_ALWAYS_SHOW_UI |
-			CREDUI_FLAGS_DO_NOT_PERSIST );
-
+		auto const dwErr = CredUIPromptForCredentials( &cui, TEXT( "" ), nullptr, 0, pszName.value, pszName.size( ), pszPwd.value, pszPwd.size( ), &fSave, CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_ALWAYS_SHOW_UI | CREDUI_FLAGS_DO_NOT_PERSIST );
 		if( ERROR_CANCELLED == dwErr ) {
 			use_token = true;
 		} else if( dwErr ) {
@@ -203,10 +185,9 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	//---------------------------------------------------------
 	{
 		// argv[1] is computer name
-		std::wstringstream wss;
-		wss << L"\\\\" << argv[1] << L"\\root\\cimv2";
+		auto const wmi_str =  L"\\\\" + remote_computer_name + L"\\root\\cimv2";
 		hres = pLoc->ConnectServer(
-			CComBSTR( wss.str( ).c_str( ) ),
+			CComBSTR( wmi_str.c_str( ) ),
 			CComBSTR( use_token ? nullptr : pszName.value ),    // User name
 			CComBSTR( use_token ? nullptr : pszPwd.value ),     // User password
 			nullptr,                              // Locale             
@@ -252,18 +233,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 	// Step 6: --------------------------------------------------
 	// Set security levels on a WMI connection ------------------
-	hres = CoSetProxyBlanket(
-		pSvc,                           // Indicates the proxy to set
-		RPC_C_AUTHN_DEFAULT,            // RPC_C_AUTHN_xxx
-		RPC_C_AUTHZ_DEFAULT,            // RPC_C_AUTHZ_xxx
-		COLE_DEFAULT_PRINCIPAL,         // Server principal name 
-		RPC_C_AUTHN_LEVEL_PKT_PRIVACY,  // RPC_C_AUTHN_LEVEL_xxx 
-		RPC_C_IMP_LEVEL_IMPERSONATE,    // RPC_C_IMP_LEVEL_xxx
-		userAcct,                       // client identity
-		EOAC_NONE                       // proxy capabilities 
-	);
-
-	if( FAILED( hres ) ) {
+	if( FAILED( hres = CoSetProxyBlanket( pSvc, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, userAcct, EOAC_NONE ) ) ) {
 		std::cerr << "Could not set proxy blanket. Error code = 0x" << std::hex << hres << std::endl;
 		return EXIT_FAILURE;
 	}
@@ -276,127 +246,97 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	auto const wql = CComBSTR( "WQL" );
 
 	CComPtr<IEnumWbemClassObject> pEnumerator = nullptr;
-	hres = pSvc->ExecQuery(
-		wql,
-		wmi_query,
-		WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-		nullptr,
-		&pEnumerator );
-
-	if( FAILED( hres ) ) {
+	if( FAILED( hres = pSvc->ExecQuery( wql, wmi_query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &pEnumerator ) ) ) {
 		std::cerr << "Query for Security Eventlog." << " Error code = 0x" << std::hex << hres << std::endl;
 		return EXIT_FAILURE;
 	}
 
 	// Step 8: -------------------------------------------------
 	// Secure the enumerator proxy
-	hres = CoSetProxyBlanket(
-		pEnumerator,                    // Indicates the proxy to set
-		RPC_C_AUTHN_DEFAULT,            // RPC_C_AUTHN_xxx
-		RPC_C_AUTHZ_DEFAULT,            // RPC_C_AUTHZ_xxx
-		COLE_DEFAULT_PRINCIPAL,         // Server principal name 
-		RPC_C_AUTHN_LEVEL_PKT_PRIVACY,  // RPC_C_AUTHN_LEVEL_xxx 
-		RPC_C_IMP_LEVEL_IMPERSONATE,    // RPC_C_IMP_LEVEL_xxx
-		userAcct,                       // client identity
-		EOAC_NONE                       // proxy capabilities 
-	);
-
-	if( FAILED( hres ) ) {
+	if( FAILED( hres = CoSetProxyBlanket( pEnumerator, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, userAcct, EOAC_NONE ) ) ) {
 		std::cerr << "Could not set proxy blanket on enumerator. Error code = 0x" << std::hex << hres << std::endl;
 		return EXIT_FAILURE;
 	}
 
 
-
 	// Step 9: -------------------------------------------------
 	// Get the data from the query in step 7 -------------------
 
-	CComPtr<IWbemClassObject> pclsObj = nullptr;
 	ULONG uReturn = 0;
 
-	auto show_header = true;
-	if( show_header ) {
-		std::wcout << "\"ComputerName\", \"SourceName\", \"Type\", \"CategoryString\", \"EventCode\", \"User\"\n";
-	}
+	std::vector<result_row> results;
 
 	while( pEnumerator ) {
+		CComPtr<IWbemClassObject> pclsObj;
+		result_row current_result;
+
 		auto hr = pEnumerator->Next( WBEM_INFINITE, 1, &pclsObj, &uReturn );
 		if( FAILED( hr ) ) {
 			std::cerr << "Error code = 0x" << std::hex << hr << std::endl;
 			break;
 		} else if( 0 == uReturn ) {
 			break;
-		} else {
-			CComVariant vtProp;
-			BOOST_SCOPE_EXIT_ALL( &) {
-				vtProp.Clear( );
-				pclsObj.Release( );
-			};
-
-			auto event_code = 0;
-			if( !get_property( pclsObj, L"EventCode", event_code ) ) {
-				break;
-			}
-
-			std::wstring msg = L"";
-			if( !get_property( pclsObj, L"Message", msg ) ) {
-				break;
-			}
-			
-			// If logon(event ID 4624) make sure we are interactive(logon type 2)
-			if( 4624 == event_code ) {
-				if( !compare( helpers::find_logon_type( msg ), 2 ) ) {
-					continue;
-				}				
-			}
-			
-			// We don't want the SYSTEM account
-			if( compare( helpers::find_security_id( msg ), L"S-1-5-18" ) ) {
-				continue;
-			}
-
-			// Computer Name
-			std::wstring computer_name = L"";
-			if( !get_property( pclsObj, L"ComputerName", computer_name ) ) {
-				break;
-			}
-			std::wcout << L"\"" << computer_name << L"\"";
-
-			// User Name
-			std::wcout << L", \"" << assign( helpers::find_account_domain( msg ), L"" );
-			std::wcout << L"\\" << assign( helpers::find_account_name( msg ), L"" ) << L"\"";
-
-			//Time Generated
-			std::wstring stime_generated = L"";
-			if( !get_property( pclsObj, L"TimeGenerated", stime_generated ) ) {
-				break;
-			}
-			SYSTEMTIME time_generated = { };
-
-			auto year = stime_generated.substr( 0, 4 );
-			auto month = stime_generated.substr( 4, 2 );
-			auto day = stime_generated.substr( 6, 2 );
-			auto hour = stime_generated.substr( 8, 2 );
-			auto minute = stime_generated.substr( 10, 2 );
-			auto second = stime_generated.substr( 12, 2 );
-
-			std::wcout << L", \"" << year << L"/" << month;
-			std::wcout << L"/" << day << L"/" << hour;
-			std::wcout << L":" << minute << L":" << second << L"\"";
-
-			// Category
-			std::wstring category_string = L"";
-			if( !get_property( pclsObj, L"CategoryString", category_string ) ) {
-				break;
-			}
-			std::wcout << L", \"" << category_string << L"\"";
-
-			std::wcout << L", " << event_code;
-
-			std::wcout << "\n";
 		}
+
+		current_result.event_code = 0;
+		if( !helpers::get_property( pclsObj, L"EventCode", current_result.event_code ) ) {
+			break;
+		}
+
+		std::wstring msg = L"";
+		if( !helpers::get_property( pclsObj, L"Message", msg ) ) {
+			break;
+		}
+			
+		// If logon(event ID 4624) make sure we are interactive(logon type 2)
+		if( 4624 == current_result.event_code && !helpers::compare( helpers::find_logon_type( msg ), 2 ) ) {
+			continue;
+		}
+		
+		// We don't want the SYSTEM account
+		if(helpers::compare( helpers::find_security_id( msg ), L"S-1-5-18" ) ) {
+			continue;
+		}
+
+		// User Name
+		auto user_name = helpers::assign( helpers::find_account_domain( msg ), L"" ) + L"\\" + helpers::assign( helpers::find_account_name( msg ), L"" );
+
+
+		// Computer Name
+		current_result.computer_name = L"";
+		if( !helpers::get_property( pclsObj, L"ComputerName", current_result.computer_name ) ) {
+			break;
+		}
+
+		//Time Generated
+		current_result.timestamp = L"";
+		if( !helpers::get_property( pclsObj, L"TimeGenerated", current_result.timestamp ) ) {
+			break;
+		}
+		current_result.sort_key = boost::lexical_cast<double>(current_result.timestamp.substr( 0, current_result.timestamp.size( ) - 4 ));
+		current_result.timestamp = parse_stringtime( current_result.timestamp );
+
+		// Category
+		current_result.category = L"";
+		if( !helpers::get_property( pclsObj, L"CategoryString", current_result.category ) ) {
+			break;
+		}
+
+		results.push_back( std::move( current_result ) );
 	}
 
+	std::sort( results.begin( ), results.end( ) );
+	if( show_header ) {
+		std::wcout << L"\"Timestamp\", \"User\", \"ComputerName\", \"Category\", \"EventCode\"\n";
+	}
+	for( auto const & result : results ) {
+		std::wcout << L"\"" << result.timestamp << L"\"";
+		std::wcout << L", \"" << result.user_name << L"\"";
+		std::wcout << L", \"" << result.computer_name << L"\"";
+		std::wcout << L", \"" << result.category << L"\"";
+		std::wcout << L", " << result.event_code;
+		std::wcout << "\n";
+	}
 
 	return EXIT_SUCCESS;   // Program successfully completed.
 

@@ -57,6 +57,10 @@ namespace helpers {
 	boost::optional<std::wstring> find_account_name( std::wstring const & value );
 	boost::optional<std::wstring> find_account_domain( std::wstring const & value );
 	boost::optional<std::wstring> find_security_id( std::wstring const & value );
+	bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, std::wstring & out_value );
+	std::wstring get_string( CComVariant const & v );
+	std::wstring get_string( VARIANT const & v );
+	bool compare( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 );
 
 	template<typename T>
 	void validate_variant_type( VARIANT const & v, T vt ) {
@@ -134,8 +138,6 @@ namespace helpers {
 		return qp.value;
 	}
 
-	std::wstring get_string( CComVariant const & v );
-	std::wstring get_string( VARIANT const & v );
 
 	//////////////////////////////////////////////////////////////////////////
 	/// Summary:	convenience function to pull proper value from VARIANT
@@ -174,7 +176,36 @@ namespace helpers {
 
 	template<typename T>
 	T get_number( VARIANT const & v ) {
-		return get<T>( CComVariant( v ) );
+		return get_number<T>( CComVariant( v ) );
 	}
 	
+	template<typename T>
+	bool compare( boost::optional<T> const & value1, T const value2 ) {
+		auto result = static_cast<bool>(value1);
+		auto const & v1 = *value1;
+		result = result && v1 == value2;
+		return result;
+	}
+
+	template<typename T, typename U>
+	T assign( boost::optional<T> v, U def_value ) {
+		if( v ) {
+			return *v;
+		} else {
+			return def_value;
+		}
+	}
+
+	template<typename T>
+	bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, T & out_value ) {
+		CComVariant vtProp;
+		auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
+		if( FAILED( hr ) ) {
+			std::wcerr << L"Error code = 0x" << std::hex << hr << std::endl;
+			return false;
+		}
+		out_value = helpers::get_number<T>( vtProp );
+		return true;
+	}
+
 }	// namespace helpers

@@ -54,4 +54,22 @@ namespace helpers {
 		return std::wstring( v.bstrVal, SysStringLen( v.bstrVal ) );
 	}
 
+
+	bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, std::wstring & out_value ) {
+		CComVariant vtProp;
+		auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
+		if( FAILED( hr ) ) {
+			std::wcerr << L"Error code = 0x" << std::hex << hr << std::endl;
+			return false;
+		}
+		out_value = helpers::get_string( vtProp );
+		return true;
+	}
+
+	bool compare( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 ) {
+		auto const & v1 = *value1;
+		auto result = static_cast<bool>(value1);
+		result = result && v1.compare( value2.data( ) ) == 0;
+		return result;
+	}
 }	// namespace helpers
