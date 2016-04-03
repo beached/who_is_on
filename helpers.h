@@ -27,29 +27,26 @@
 #define UNICODE
 #endif
 
-
+#include <Wbemidl.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/optional.hpp>
 #include <boost/utility/string_ref.hpp>
+#include <comdef.h>
 #include <cstdint>
-#include <sstream>
-#include <string>
-
 #include <exception>
 #include <iostream>
 #include <sstream>
-#include <comdef.h>
-#include <Wbemidl.h>
-#include <boost/scope_exit.hpp>
+#include <sstream>
+#include <string>
 
 #pragma comment(lib, "wbemuuid.lib")
 #pragma comment(lib, "credui.lib")
 #pragma comment(lib, "comsuppw.lib")
-#include <wincred.h>
-#include <strsafe.h>
-#include <boost/utility/string_ref.hpp>
 #include <atlbase.h>
-#include "helpers.h"
+#include <boost/utility/string_ref.hpp>
+#include <strsafe.h>
+#include <wincred.h>
+
 
 namespace daw {
 	namespace wmi {

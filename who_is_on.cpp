@@ -20,31 +20,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#define _WIN32_DCOM
-#ifndef UNICODE
-#define UNICODE
-#endif
-#include <exception>
-#include <boost/program_options.hpp>
-#include <iostream>
-#include <sstream>
-#include <comdef.h>
-#include <Wbemidl.h>
-#include <boost/scope_exit.hpp>
-
-
-#pragma comment(lib, "wbemuuid.lib")
-#pragma comment(lib, "credui.lib")
-#pragma comment(lib, "comsuppw.lib")
-#include <wincred.h>
-#include <strsafe.h>
-#include <atlbase.h>
-
-#include <iostream>
-#include <sstream>
-
-
-#include "helpers.h"
+#include <algorithm>
+#include <boost/program_options.hpp>#include <exception>
+#include <iostream>
 #include "wmi_query.h"
 
 
@@ -54,52 +32,65 @@ struct result_row {
 	std::wstring user_name;
 	std::wstring computer_name;
 	std::wstring category;
-	int event_code;	
+	int event_code;
+
+	// operator< for sorting
+	bool operator<( result_row const & rhs ) const {
+		return sort_key < rhs.sort_key;
+	}
 };	// struct result_row;
 
-bool operator<( result_row const & lhs, result_row const & rhs ) {
-	return lhs.sort_key < rhs.sort_key;
-}
 
-int __cdecl wmain( int argc, wchar_t *argv[] ) {
-	bool show_header;
-	std::wstring remote_computer_name;
-	namespace po = boost::program_options;
-	po::options_description desc( "Allowed options" );
-	desc.add_options( )
-		("help", "produce help message")
-		("prompt", "prompt for network credentials")
-		("show_header", "show field header in output")
-		("computer_name", po::wvalue<std::wstring>( &remote_computer_name )->required( ), "Host name of computer to connect to.  Use . for local machine");
+int __cdecl wmain( int argc, wchar_t *argv[] ) {	
+	auto args = [argc, argv]( ) {	// Parse command line
+		struct {
+			bool show_header = false;
+			bool prompt_credentials = false;
+			std::wstring remote_computer_name = L"";
+		} result;
 
-	po::positional_options_description positional_options;
-	positional_options.add( "computer_name", 1 );
+		namespace po = boost::program_options;
+		po::options_description desc( "Allowed options" );
+		desc.add_options( )
+			("help", "produce help message")
+			("prompt", "prompt for network credentials")
+			("show_header", "show field header in output")
+			("computer_name", po::wvalue<std::wstring>( ), "Host name of remote computer to connect to.");
 
-	po::variables_map vm;
-	auto prompt_credentials = false;
-	try {
-		po::store( po::wcommand_line_parser( argc, argv ).options( desc ).positional( positional_options ).run( ), vm );
-		po::notify( vm );
+		po::variables_map vm;
 
+		try {
+			po::store( po::parse_command_line( argc, argv, desc ), vm );
+			po::notify( vm );
 
-		if( vm.count( "help" ) ) {
-			std::cout << desc << std::endl;
-			return EXIT_SUCCESS;
+			if( vm.count( "help" ) ) {
+				std::cout << desc << std::endl;
+				exit( EXIT_SUCCESS );
+			}
+
+			result.prompt_credentials = vm.count( "prompt" ) != 0;
+			result.show_header = vm.count( "show_header" ) != 0;
+			if( 0 == vm.count( "computer_name" ) ) {
+				result.remote_computer_name = vm["computer_name"].as<std::wstring>( );
+				if( result.prompt_credentials ) {
+					std::wcerr << "Warning: When connecting locally cannot prompt for credentials\n";
+					result.prompt_credentials = false;
+				}
+			}
+		} catch( po::required_option& e ) {
+			std::cerr << "ERROR: " << e.what( ) << std::endl << std::endl;
+			exit( EXIT_FAILURE );
+		} catch( boost::program_options::error& e ) {
+			std::cerr << "ERROR: " << e.what( ) << std::endl << std::endl;
+			exit( EXIT_FAILURE );
 		}
-		prompt_credentials = vm.count( "prompt" ) != 0;
-		show_header = vm.count( "show_header" ) != 0;
-	} catch( po::required_option& e ) {
-		std::cerr << "ERROR: " << e.what( ) << std::endl << std::endl;
-		exit( EXIT_FAILURE );
-	} catch( boost::program_options::error& e ) {
-		std::cerr << "ERROR: " << e.what( ) << std::endl << std::endl;
-		exit( EXIT_FAILURE );
-	}
+		return result;
+	}();
 
 	std::string const wmi_query_str = "Select * from Win32_NTLogEvent Where Logfile='Security' And (EventCode=4647 Or EventCode=4624)";
 
 	try {
-		auto results = daw::wmi::wmi_query<result_row>( remote_computer_name, wmi_query_str, prompt_credentials, []( auto row_items ) {
+		auto results = daw::wmi::wmi_query<result_row>( args.remote_computer_name, wmi_query_str, args.prompt_credentials, []( auto row_items ) {
 			using namespace daw::wmi;
 			using namespace daw::wmi::helpers;
 
@@ -151,9 +142,9 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			return current_result;
 		} );
 
-		std::sort( results.begin( ), results.end( ) );
+		std::sort( std::begin( results ), std::end( results ) );
 
-		if( show_header ) {
+		if( args.show_header ) {
 			std::wcout << L"\"Timestamp\", \"User\", \"ComputerName\", \"Category\", \"EventCode\"\n";
 		}
 		for( auto const & result : results ) {
@@ -166,7 +157,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		}
 	} catch( std::exception const & e ) {
 		std::cerr << "Exception while running query:\n" << e.what( ) << std::endl;
-		return EXIT_FAILURE;
+		exit( EXIT_FAILURE );
 	}
 	return EXIT_SUCCESS;   // Program successfully completed.
 
