@@ -27,12 +27,9 @@
 #endif
 
 #include <atlbase.h>
-#include <atlsafe.h>
 #include <boost/program_options.hpp>
 #include <boost/utility/string_ref.hpp>
 #include <functional>
-#include <iostream>
-#include <strsafe.h>
 #include <vector>
 #include <Wbemidl.h>
 
@@ -68,9 +65,18 @@ namespace daw {
 			SkipRowException & operator=( SkipRowException && ) = default;
 		};	// struct SkipRowException
 
+		struct StopProcessingException {
+			StopProcessingException( ) = default;
+			~StopProcessingException( ) = default;
+			StopProcessingException( StopProcessingException const & ) = default;
+			StopProcessingException( StopProcessingException && ) = default;
+			StopProcessingException & operator=( StopProcessingException const & ) = default;
+			StopProcessingException & operator=( StopProcessingException && ) = default;
+		};	// struct StopProcessingException
+	
 		namespace impl {
 			class COMConnection;
-			std::shared_ptr<COMConnection> create_com_connection( );
+			std::shared_ptr<COMConnection> intialize_COM( );
 
 			struct Authentication {
 				using sec_array = daw::wmi::helpers::secure_wipe_array<wchar_t, CREDUI_MAX_USERNAME_LENGTH + 1>;
@@ -85,7 +91,7 @@ namespace daw {
 				COAUTHIDENTITY m_auth_ident;
 				COAUTHIDENTITY* m_user_account;
 			public:
-				Authentication( bool PromptCredentials = false, bool UseNtlm = true );
+				Authentication( bool const PromptCredentials = false, bool const UseNtlm = true );
 				sec_array & name( );
 				CComBSTR name_bstr( ) const;
 				sec_array & password( );
@@ -101,48 +107,56 @@ namespace daw {
 
 			CComPtr<IWbemLocator> obtain_wmi_locator( );
 
-			CComPtr<IWbemServices> connect_to_server( boost::wstring_ref& host, CComPtr<IWbemLocator> pLoc, Authentication& auth );
+			CComPtr<IWbemServices> connect_to_server( CComPtr<IWbemLocator> & com_ptr, boost::wstring_ref host, Authentication & auth );
 
-			void set_wmi_security( CComPtr<IWbemServices> pSvc, Authentication &auth );
+			template<typename T>
+			void set_wmi_security( CComPtr<T> & com_ptr, Authentication &auth ) {
+				HRESULT hres;
+				if( FAILED( hres = CoSetProxyBlanket( com_ptr, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, auth.user_account( ), EOAC_NONE ) ) ) {
+					std::stringstream ss;
+					ss << "Could not set proxy blanket. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).Description( );
+					throw std::runtime_error( ss.str( ) );
+				}
+			}
 
-			void secure_wmi_enumerator( CComPtr<IEnumWbemClassObject> pEnumerator, Authentication &auth );
+			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> & com_ptr, boost::string_ref &query );
 
-			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> pSvc, boost::string_ref &query );
-
-			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> query_enumerator );
+			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> & query_enumerator );
 		}	// namespace impl
 
 		
 
 		template<typename T>
-		std::vector<T> wmi_query( boost::wstring_ref host, boost::string_ref query, bool prompt_credentials, std::function<T( IWbemWrapper )> callback, bool use_ntlm = true ) {
+		std::vector<T> wmi_query( boost::wstring_ref host, boost::string_ref query, bool const prompt_credentials, std::function<T( IWbemWrapper )> callback, bool const use_ntlm = false ) {
 
-			auto pLoc = impl::obtain_wmi_locator( );
+			auto wmi_locator = impl::obtain_wmi_locator( );
 
 			impl::Authentication auth( prompt_credentials, use_ntlm );
 
 			// Connect to WMI through the IWbemLocator::ConnectServer method
-			auto pSvc = connect_to_server( host, pLoc, auth );
+			auto wmi_svc = connect_to_server( wmi_locator, host, auth );
 
 			// Set security levels on a WMI connection ------------------
-			impl::set_wmi_security( pSvc, auth );
+			impl::set_wmi_security( wmi_svc, auth );
 
 			// Execute WMI query
-			auto query_enumerator = impl::execute_wmi_query( pSvc, query );
+			auto wmi_query_enum = impl::execute_wmi_query( wmi_svc, query );
 
 			// Secure the enumerator proxy
-			impl::secure_wmi_enumerator( query_enumerator, auth );
+			impl::set_wmi_security( wmi_query_enum, auth );
 
 
 			std::vector<T> results;
 
-			while( query_enumerator ) {
-				auto current_obj = impl::enumerator_next( query_enumerator );
+			while( wmi_query_enum ) {				
 				try {
+					auto current_obj = impl::enumerator_next( wmi_query_enum );
 					auto result = callback( IWbemWrapper( current_obj ) );
 					results.push_back( std::move( result ) );
 				} catch( SkipRowException const & ) {
 					continue;
+				} catch( StopProcessingException const & ) {
+					break;
 				}
 			}
 			return results;

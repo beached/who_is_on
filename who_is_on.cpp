@@ -81,6 +81,8 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			result.show_header = vm.count( "show_header" ) != 0;
 			if( 0 != vm.count( "computer_name" ) ) {
 				result.remote_computer_name = vm["computer_name"].as<std::wstring>( );
+			} else {
+				result.remote_computer_name = L".";
 				if( result.prompt_credentials ) {
 					std::wcerr << "Warning: When connecting locally cannot prompt for credentials\n";
 					result.prompt_credentials = false;

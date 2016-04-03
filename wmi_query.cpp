@@ -45,6 +45,20 @@
 
 namespace daw {
 	namespace wmi {
+		namespace {
+			template<typename E = std::runtime_error>
+			HRESULT throw_on_fail( HRESULT hres, boost::string_ref err_msg ) {
+				if( FAILED( hres ) ) {
+					std::stringstream ss;
+					ss << err_msg.to_string( ) << " Error code = 0x" << std::hex << hres << ":";
+					ss << _com_error( hres ).Description( );
+					auto const msg = ss.str( );
+					throw std::runtime_error( std::move( msg ) );
+				}
+				return hres;
+			}
+		}
+
 		IWbemWrapper::IWbemWrapper( CComPtr<IWbemClassObject> obj ): m_obj( std::move( obj ) ) { }
 
 		bool IWbemWrapper::operator( )( boost::wstring_ref property_name, std::wstring& out_value ) {
@@ -56,30 +70,19 @@ namespace daw {
 			class COMConnection {
 				COMConnection( ) {
 					// Initialize COM
-					auto hres = CoInitializeEx( nullptr, COINIT_MULTITHREADED );
-					if( FAILED( hres ) ) {
-						std::stringstream ss;
-						ss << "Failed to initialize COM library. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-						throw std::runtime_error( ss.str( ) );
-					}
+					throw_on_fail( CoInitializeEx( nullptr, COINIT_MULTITHREADED ), "Failed to initialize COM library." );
 
 					// Set general COM security levels
-					if( FAILED( hres = CoInitializeSecurity( nullptr, -1, nullptr, nullptr, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IDENTIFY, nullptr, EOAC_NONE, nullptr ) ) ) {
-						std::stringstream ss;
-						ss << "Failed to initialize security. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-						throw std::runtime_error( ss.str( ) );
-					}
-
+					throw_on_fail( CoInitializeSecurity( nullptr, -1, nullptr, nullptr, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IDENTIFY, nullptr, EOAC_NONE, nullptr ), "Failed to initialize security." );
 				}
 			public:
-				friend std::shared_ptr<COMConnection> create_com_connection( );
-
+				friend std::shared_ptr<COMConnection> intialize_COM( );
 				~COMConnection( ) {
 					CoUninitialize( );
 				}
 			};	// class COMConnection
 
-			std::shared_ptr<COMConnection> create_com_connection( ) {
+			std::shared_ptr<COMConnection> intialize_COM( ) {
 				static auto cc = std::shared_ptr<COMConnection>( []( ) {
 					COMConnection * result = nullptr;
 					try {
@@ -92,7 +95,7 @@ namespace daw {
 				}() );
 				return cc;
 			}
-			Authentication::Authentication( bool PromptCredentials, bool UseNtlm ): m_name { }, m_password { }, m_domain { }, m_user_name { }, m_authority { }, m_use_token( true ), m_use_ntlm( UseNtlm ), m_auth_ident( { } ), m_user_account( nullptr ) {
+			Authentication::Authentication( bool const PromptCredentials, bool const UseNtlm ): m_name { }, m_password { }, m_domain { }, m_user_name { }, m_authority { }, m_use_token( true ), m_use_ntlm( UseNtlm ), m_auth_ident( { } ), m_user_account( nullptr ) {
 				if( PromptCredentials ) {
 					CREDUI_INFO cui { };
 					cui.cbSize = sizeof( CREDUI_INFO );
@@ -197,80 +200,48 @@ namespace daw {
 
 			CComPtr<IWbemLocator> obtain_wmi_locator( ) {
 				// Obtain the initial locator to WMI 
-				auto com_connection = create_com_connection( );
+				auto com_connection = intialize_COM( );
 
 				CComPtr<IWbemLocator> locator;
-				HRESULT hres;
-				if( FAILED( hres = CoCreateInstance( CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator, reinterpret_cast<LPVOID *>(&locator) ) ) ) {
-					std::stringstream ss;
-					ss << "Failed to create IWbemLocator object. Err code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-					throw std::runtime_error( ss.str( ) );
-				}
+				throw_on_fail( CoCreateInstance( CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator, reinterpret_cast<LPVOID *>(&locator) ), "Failed to create IWbemLocator object" );
+
 				return locator;
 			}
 
-			CComPtr<IWbemServices> connect_to_server( boost::wstring_ref& host, CComPtr<IWbemLocator> pLoc, Authentication& auth ) {
-				CComPtr<IWbemServices> pSvc;
+			CComPtr<IWbemServices> connect_to_server( CComPtr<IWbemLocator> & com_ptr, boost::wstring_ref host, Authentication & auth ) {
+				CComPtr<IWbemServices> svc_ptr;
 
 				// Connect to the remote root\cimv2 namespace
 				// and obtain pointer pSvc to make IWbemServices calls.
 				//---------------------------------------------------------
 				auto const wmi_str = L"\\\\" + host.to_string( ) + L"\\root\\cimv2";
-				HRESULT hres;
-				if( FAILED( hres = pLoc->ConnectServer( CComBSTR( wmi_str.c_str( ) ), auth.name_bstr( ), auth.password_bstr( ), nullptr, 0, auth.authoriy_bstr( ), nullptr, &pSvc ) ) ) {
-					std::stringstream ss;
-					ss << "Failed to create IWbemLocator object. Err code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-					throw std::runtime_error( ss.str( ) );
-				}
-				return pSvc;
+				throw_on_fail( com_ptr->ConnectServer( CComBSTR( wmi_str.c_str( ) ), auth.name_bstr( ), auth.password_bstr( ), nullptr, 0, auth.authoriy_bstr( ), nullptr, &svc_ptr ), "Failed to create IWbemLocator object." );
+
+				return svc_ptr;
 			}
 
-			void set_wmi_security( CComPtr<IWbemServices> pSvc, Authentication &auth ) {
-				HRESULT hres;
-				if( FAILED( hres = CoSetProxyBlanket( pSvc, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, auth.user_account( ), EOAC_NONE ) ) ) {
-					std::stringstream ss;
-					ss << "Could not set proxy blanket. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-					throw std::runtime_error( ss.str( ) );
-				}
-			}
-
-			void secure_wmi_enumerator( CComPtr<IEnumWbemClassObject> pEnumerator, Authentication &auth ) {
-				HRESULT hres;
-				if( FAILED( hres = CoSetProxyBlanket( pEnumerator, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, auth.user_account( ), EOAC_NONE ) ) ) {
-					std::stringstream ss;
-					ss << "Could not set proxy blanket on enumerator. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-					throw std::runtime_error( ss.str( ) );
-				}
-			}
-
-			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> query_enumerator ) {
+			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> & query_enumerator ) {
 				CComPtr<IWbemClassObject> value;
 
 				ULONG value_type = 0;
 
-				auto hres = query_enumerator->Next( WBEM_INFINITE, 1, &value, &value_type );
-				if( FAILED( hres ) ) {
-					std::stringstream ss;
-					ss << "Error getting next object from query. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-					throw std::runtime_error( ss.str( ) );
-				} else if( 0 == value_type ) {
+				throw_on_fail( query_enumerator->Next( WBEM_INFINITE, 1, &value, &value_type ), "Error getting next object from query." );
+				
+				if( 0 == value_type ) {
 					// TODO figure out better
-					throw SkipRowException( );
+					throw StopProcessingException( );
 				}
 				return value;
 			}
 
-			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> pSvc, boost::string_ref &query ) {
+			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> & com_ptr, boost::string_ref &query ) {
 				auto const wmi_query = CComBSTR( query.data( ) );
 				auto const wql = CComBSTR( "WQL" );
-				HRESULT hres;
+
 				// Use the IWbemServices pointer to make WMI query
 				CComPtr<IEnumWbemClassObject> pEnumerator = nullptr;
-				if( FAILED( hres = pSvc->ExecQuery( wql, wmi_query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &pEnumerator ) ) ) {
-					std::stringstream ss;
-					ss << "Query for Security Eventlog. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-					throw std::runtime_error( ss.str( ) );
-				}
+				throw_on_fail( com_ptr->ExecQuery( wql, wmi_query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &pEnumerator ), "Query for Security Eventlog." );
+
 				return pEnumerator;
 			}
 		}	// namespace impl
