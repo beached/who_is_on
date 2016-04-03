@@ -29,17 +29,24 @@
 
 struct result_row {
 	double sort_key;
-	std::wstring timestamp;
-	std::wstring user_name;
-	std::wstring computer_name;
-	std::wstring category;
-	int event_code;
+	std::wstring timestamp = L"";
+	std::wstring user_name = L"";
+	std::wstring computer_name = L"";
+	std::wstring category = L"";
+	int event_code = 0;
 
 	// operator< for sorting
 	bool operator<( result_row const & rhs ) const {
 		return sort_key < rhs.sort_key;
 	}
 };	// struct result_row;
+
+template<typename E = std::runtime_error>
+void throw_on_false( bool test, boost::string_ref err_msg ) {
+	if( !test ) {
+		throw E( err_msg.to_string( ) );
+	}
+}
 
 
 int __cdecl wmain( int argc, wchar_t *argv[] ) {
@@ -89,23 +96,18 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		return result;
 	}();
 
-	std::string const wmi_query_str = "Select * from Win32_NTLogEvent Where Logfile='Security' And (EventCode=4647 Or EventCode=4624)";
-
 	try {
+		std::string const wmi_query_str = "Select * from Win32_NTLogEvent Where Logfile='Security' And (EventCode=4647 Or EventCode=4624)";
 		auto results = daw::wmi::wmi_query<result_row>( parsed_args.remote_computer_name, wmi_query_str, parsed_args.prompt_credentials, []( auto row_items ) {
 			using namespace daw::wmi;
 			using namespace daw::wmi::helpers;
 
 			result_row current_result;
-			current_result.event_code = 0;
-			if( !row_items( L"EventCode", current_result.event_code ) ) {
-				throw std::runtime_error( "Property not found: EventCode" );
-			}
+			throw_on_false( row_items( L"EventCode", current_result.event_code ), "Property not found: EventCode" );			
 
 			std::wstring msg = L"";
-			if( !row_items( L"Message", msg ) ) {
-				throw std::runtime_error( "Property not found: Message" );
-			}
+			throw_on_false( row_items( L"Message", msg ), "Property not found: Message" );
+			
 
 			// If logon(event ID 4624) make sure we are interactive(logon type 2)
 			if( 4624 == current_result.event_code && !equal_eh( find_logon_type( msg ), 2 ) ) {
@@ -118,28 +120,18 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			}
 
 			// User Name
-			auto user_name = assign( find_account_domain( msg ), L"" ) + L"\\" + assign( find_account_name( msg ), L"" );
-
+			current_result.user_name = assign( find_account_domain( msg ), L"" ) + L"\\" + assign( find_account_name( msg ), L"" );
 
 			// Computer Name
-			current_result.computer_name = L"";
-			if( !row_items( L"ComputerName", current_result.computer_name ) ) {
-				throw std::runtime_error( "Property not found: ComputerName" );
-			}
+			throw_on_false( !row_items( L"ComputerName", current_result.computer_name ), "Property not found: ComputerName" );
 
 			//Time Generated
-			current_result.timestamp = L"";
-			if( !row_items( L"TimeGenerated", current_result.timestamp ) ) {
-				throw std::runtime_error( "Property not found: TimeGenerated" );
-			}
+			throw_on_false( !row_items( L"TimeGenerated", current_result.timestamp ), "Property not found: TimeGenerated" );
 			current_result.sort_key = boost::lexical_cast<double>(current_result.timestamp.substr( 0, current_result.timestamp.size( ) - 4 ));
 			current_result.timestamp = parse_stringtime( current_result.timestamp );
 
 			// Category
-			current_result.category = L"";
-			if( !row_items( L"CategoryString", current_result.category ) ) {
-				throw std::runtime_error( "Property not found: CategoryString" );
-			}
+			throw_on_false( !row_items( L"CategoryString", current_result.category ), "Property not found: CategoryString" );
 
 			return current_result;
 		} );

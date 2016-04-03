@@ -103,7 +103,7 @@ namespace daw {
 					cui.pszCaptionText = TEXT( "Enter Account Information" );
 					cui.hbmBanner = nullptr;
 					BOOL f_save = FALSE;
-					DWORD credential_flags = CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_ALWAYS_SHOW_UI | CREDUI_FLAGS_DO_NOT_PERSIST;
+					DWORD const credential_flags = CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_ALWAYS_SHOW_UI | CREDUI_FLAGS_DO_NOT_PERSIST;
 					auto const dw_error = CredUIPromptForCredentials( &cui, TEXT( "" ), nullptr, 0, m_name.value, static_cast<ULONG>(m_name.size( )), m_password.value, static_cast<ULONG>(m_password.size( )), &f_save, credential_flags );
 					if( ERROR_CANCELLED == dw_error ) {
 						m_use_token = true;
