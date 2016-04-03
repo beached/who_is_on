@@ -21,8 +21,9 @@
 // SOFTWARE.
 
 #include <algorithm>
-#include <boost/program_options.hpp>#include <exception>
-#include <iostream>
+#include <boost/program_options.hpp>
+#include <exception>
+#include <iostream>
 #include "wmi_query.h"
 
 
@@ -41,8 +42,9 @@ struct result_row {
 };	// struct result_row;
 
 
-int __cdecl wmain( int argc, wchar_t *argv[] ) {	
-	auto args = [argc, argv]( ) {	// Parse command line
+int __cdecl wmain( int argc, wchar_t *argv[] ) {
+
+	auto parsed_args = [&argc, &argv]( ) {	// Parse command line
 		struct {
 			bool show_header = false;
 			bool prompt_credentials = false;
@@ -70,7 +72,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 			result.prompt_credentials = vm.count( "prompt" ) != 0;
 			result.show_header = vm.count( "show_header" ) != 0;
-			if( 0 == vm.count( "computer_name" ) ) {
+			if( 0 != vm.count( "computer_name" ) ) {
 				result.remote_computer_name = vm["computer_name"].as<std::wstring>( );
 				if( result.prompt_credentials ) {
 					std::wcerr << "Warning: When connecting locally cannot prompt for credentials\n";
@@ -90,7 +92,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 	std::string const wmi_query_str = "Select * from Win32_NTLogEvent Where Logfile='Security' And (EventCode=4647 Or EventCode=4624)";
 
 	try {
-		auto results = daw::wmi::wmi_query<result_row>( args.remote_computer_name, wmi_query_str, args.prompt_credentials, []( auto row_items ) {
+		auto results = daw::wmi::wmi_query<result_row>( parsed_args.remote_computer_name, wmi_query_str, parsed_args.prompt_credentials, []( auto row_items ) {
 			using namespace daw::wmi;
 			using namespace daw::wmi::helpers;
 
@@ -144,7 +146,7 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 		std::sort( std::begin( results ), std::end( results ) );
 
-		if( args.show_header ) {
+		if( parsed_args.show_header ) {
 			std::wcout << L"\"Timestamp\", \"User\", \"ComputerName\", \"Category\", \"EventCode\"\n";
 		}
 		for( auto const & result : results ) {

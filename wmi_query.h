@@ -59,37 +59,6 @@ namespace daw {
 			bool operator( )( boost::wstring_ref property_name, std::wstring & out_value );
 		};	// class IWBemWrapper
 
-		class COMConnection;
-		std::shared_ptr<COMConnection> create_com_connection( );
-
-		struct Authentication {
-			using sec_array = daw::wmi::helpers::secure_wipe_array<wchar_t, CREDUI_MAX_USERNAME_LENGTH + 1>;
-		private:
-			sec_array m_name;			
-			sec_array m_password;
-			sec_array m_domain;
-			sec_array m_user_name;
-			sec_array m_authority;
-			bool m_use_token;
-			bool m_use_ntlm;
-			COAUTHIDENTITY m_auth_ident;
-			COAUTHIDENTITY* m_user_account;
-		public:
-			
-
-			Authentication( bool PromptCredentials = false, bool UseNtlm = true );
-			sec_array & name( );
-			CComBSTR name_bstr( ) const;
-			sec_array & password( );
-			CComBSTR password_bstr( ) const;
-			sec_array & domain( );
-			sec_array & authority( );
-			CComBSTR authoriy_bstr( ) const;
-			bool & use_token( );
-			bool & use_ntlm( );
-			COAUTHIDENTITY* user_account( );
-		};	// class Authentication
-
 		struct SkipRowException {
 			SkipRowException( ) = default;
 			~SkipRowException( ) = default;
@@ -99,79 +68,81 @@ namespace daw {
 			SkipRowException & operator=( SkipRowException && ) = default;
 		};	// struct SkipRowException
 
+		namespace impl {
+			class COMConnection;
+			std::shared_ptr<COMConnection> create_com_connection( );
+
+			struct Authentication {
+				using sec_array = daw::wmi::helpers::secure_wipe_array<wchar_t, CREDUI_MAX_USERNAME_LENGTH + 1>;
+			private:
+				sec_array m_name;
+				sec_array m_password;
+				sec_array m_domain;
+				sec_array m_user_name;
+				sec_array m_authority;
+				bool m_use_token;
+				bool m_use_ntlm;
+				COAUTHIDENTITY m_auth_ident;
+				COAUTHIDENTITY* m_user_account;
+			public:
+				Authentication( bool PromptCredentials = false, bool UseNtlm = true );
+				sec_array & name( );
+				CComBSTR name_bstr( ) const;
+				sec_array & password( );
+				CComBSTR password_bstr( ) const;
+				sec_array & domain( );
+				sec_array & authority( );
+				CComBSTR authoriy_bstr( ) const;
+				bool & use_token( );
+				bool & use_ntlm( );
+				COAUTHIDENTITY* user_account( );
+			};	// class Authentication
+
+
+			CComPtr<IWbemLocator> obtain_wmi_locator( );
+
+			CComPtr<IWbemServices> connect_to_server( boost::wstring_ref& host, CComPtr<IWbemLocator> pLoc, Authentication& auth );
+
+			void set_wmi_security( CComPtr<IWbemServices> pSvc, Authentication &auth );
+
+			void secure_wmi_enumerator( CComPtr<IEnumWbemClassObject> pEnumerator, Authentication &auth );
+
+			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> pSvc, boost::string_ref &query );
+
+			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> query_enumerator );
+		}	// namespace impl
+
+		
+
 		template<typename T>
 		std::vector<T> wmi_query( boost::wstring_ref host, boost::string_ref query, bool prompt_credentials, std::function<T( IWbemWrapper )> callback, bool use_ntlm = true ) {
-			// Obtain the initial locator to WMI 
-			auto com_connection = create_com_connection( );
 
-			CComPtr<IWbemLocator> pLoc;
-			HRESULT hres;
-				if( FAILED( hres = CoCreateInstance( CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator, reinterpret_cast<LPVOID *>(&pLoc) ) ) ) {
-				std::stringstream ss;
-				ss << "Failed to create IWbemLocator object. Err code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-				throw std::runtime_error( ss.str( ) );
-			}
+			auto pLoc = impl::obtain_wmi_locator( );
 
-			Authentication auth( prompt_credentials, use_ntlm );
+			impl::Authentication auth( prompt_credentials, use_ntlm );
 
 			// Connect to WMI through the IWbemLocator::ConnectServer method
-			CComPtr<IWbemServices> pSvc;
-
-			// Connect to the remote root\cimv2 namespace
-			// and obtain pointer pSvc to make IWbemServices calls.
-			//---------------------------------------------------------
-			auto const wmi_str = L"\\\\" + host.to_string( ) + L"\\root\\cimv2";
-			if( FAILED( hres = pLoc->ConnectServer( CComBSTR( wmi_str.c_str( ) ), auth.name_bstr( ), auth.password_bstr( ), nullptr, 0, auth.authoriy_bstr( ), nullptr, &pSvc ) ) ) {
-				std::stringstream ss;
-				ss << "Failed to create IWbemLocator object. Err code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-				throw std::runtime_error( ss.str( ) );
-			}
+			auto pSvc = connect_to_server( host, pLoc, auth );
 
 			// Set security levels on a WMI connection ------------------
-			if( FAILED( hres = CoSetProxyBlanket( pSvc, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, auth.user_account( ), EOAC_NONE ) ) ) {
-				std::stringstream ss;
-				ss << "Could not set proxy blanket. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-				throw std::runtime_error( ss.str( ) );
-			}
+			impl::set_wmi_security( pSvc, auth );
 
-			// Use the IWbemServices pointer to make WMI query
-			auto const wmi_query = CComBSTR( query.data( ) );
-			auto const wql = CComBSTR( "WQL" );
-
-			CComPtr<IEnumWbemClassObject> pEnumerator = nullptr;
-			if( FAILED( hres = pSvc->ExecQuery( wql, wmi_query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &pEnumerator ) ) ) {
-				std::stringstream ss;
-				ss << "Query for Security Eventlog. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-				throw std::runtime_error( ss.str( ) );
-			}
+			// Execute WMI query
+			auto query_enumerator = impl::execute_wmi_query( pSvc, query );
 
 			// Secure the enumerator proxy
-			if( FAILED( hres = CoSetProxyBlanket( pEnumerator, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, auth.user_account( ), EOAC_NONE ) ) ) {
-				std::stringstream ss;
-				ss << "Could not set proxy blanket on enumerator. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).ErrorMessage( );
-				throw std::runtime_error( ss.str( ) );
-			}
+			impl::secure_wmi_enumerator( query_enumerator, auth );
+
 
 			std::vector<T> results;
 
-			while( pEnumerator ) {
-				CComPtr<IWbemClassObject> pclsObj;
-				
-				ULONG uReturn = 0;
-
-				auto hr = pEnumerator->Next( WBEM_INFINITE, 1, &pclsObj, &uReturn );
-				if( FAILED( hr ) ) {
-					std::cerr << "Error code = 0x" << std::hex << hr << std::endl;
-					break;
-				} else if( 0 == uReturn ) {
-					break;
-				}
-
+			while( query_enumerator ) {
+				auto current_obj = impl::enumerator_next( query_enumerator );
 				try {
-					auto result = callback( IWbemWrapper( pclsObj ) );
+					auto result = callback( IWbemWrapper( current_obj ) );
 					results.push_back( std::move( result ) );
 				} catch( SkipRowException const & ) {
-					// Do nothing
+					continue;
 				}
 			}
 			return results;
