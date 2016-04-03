@@ -62,7 +62,7 @@ namespace daw {
 			bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, std::wstring & out_value );
 			std::wstring get_string( CComVariant const & v );
 			std::wstring get_string( VARIANT const & v );
-			bool compare( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 );
+			bool equal_eh( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 );
 			std::wstring parse_stringtime( boost::wstring_ref time_string );
 
 			template<typename T>
@@ -183,7 +183,7 @@ namespace daw {
 			}
 
 			template<typename T>
-			bool compare( boost::optional<T> const & value1, T const value2 ) {
+			bool equal_eh( boost::optional<T> const & value1, T const value2 ) {
 				auto result = static_cast<bool>(value1);
 				auto const & v1 = *value1;
 				result = result && v1 == value2;

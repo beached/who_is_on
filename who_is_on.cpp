@@ -115,12 +115,12 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			}
 
 			// If logon(event ID 4624) make sure we are interactive(logon type 2)
-			if( 4624 == current_result.event_code && !compare( find_logon_type( msg ), 2 ) ) {
+			if( 4624 == current_result.event_code && !equal_eh( find_logon_type( msg ), 2 ) ) {
 				throw SkipRowException( );
 			}
 
 			// We don't want the SYSTEM account
-			if( compare( find_security_id( msg ), L"S-1-5-18" ) ) {
+			if( equal_eh( find_security_id( msg ), L"S-1-5-18" ) ) {
 				throw SkipRowException( );
 			}
 

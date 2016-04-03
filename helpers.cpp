@@ -68,7 +68,7 @@ namespace daw {
 				return true;
 			}
 
-			bool compare( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 ) {
+			bool equal_eh( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 ) {
 				auto const & v1 = *value1;
 				auto result = static_cast<bool>(value1);
 				result = result && v1.compare( value2.data( ) ) == 0;
