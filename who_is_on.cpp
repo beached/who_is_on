@@ -125,8 +125,9 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 			current_result.user_name = assign( find_account_domain( msg ), L"" ) + L"\\" + assign( find_account_name( msg ), L"" );
 
 			// Computer Name
+						
 			throw_on_false( !row_items( L"ComputerName", current_result.computer_name ), "Property not found: ComputerName" );
-
+			
 			//Time Generated
 			throw_on_false( !row_items( L"TimeGenerated", current_result.timestamp ), "Property not found: TimeGenerated" );
 			current_result.sort_key = boost::lexical_cast<double>(current_result.timestamp.substr( 0, current_result.timestamp.size( ) - 4 ));
