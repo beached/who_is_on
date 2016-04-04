@@ -56,8 +56,7 @@ namespace daw {
 				return std::wstring( v.bstrVal, SysStringLen( v.bstrVal ) );
 			}
 
-
-			bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, std::wstring & out_value ) {
+			bool get_property( CComPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, std::wstring & out_value ) {
 				CComVariant vtProp;
 				auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
 				if( FAILED( hr ) ) {

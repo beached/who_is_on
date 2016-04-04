@@ -56,7 +56,7 @@ namespace daw {
 			boost::optional<std::wstring> find_account_name( std::wstring const & value );
 			boost::optional<std::wstring> find_account_domain( std::wstring const & value );
 			boost::optional<std::wstring> find_security_id( std::wstring const & value );
-			bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, std::wstring & out_value );
+			bool get_property( CComPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, std::wstring & out_value );
 			std::wstring get_string( CComVariant const & v );
 			std::wstring get_string( VARIANT const & v );
 			bool equal_eh( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 );
@@ -197,7 +197,7 @@ namespace daw {
 			}
 
 			template<typename T>
-			bool get_property( CComPtr<IWbemClassObject> const & pclsObj, boost::wstring_ref property_name, T & out_value ) {
+			bool get_property( CComPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, T & out_value ) {
 				CComVariant vtProp;
 				auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
 				if( FAILED( hr ) ) {

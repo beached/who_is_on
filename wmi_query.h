@@ -48,6 +48,8 @@ namespace daw {
 			IWbemWrapper( IWbemWrapper && ) = default;
 			IWbemWrapper & operator=( IWbemWrapper && ) = default;
 
+			CComPtr<IWbemClassObject> & ptr( );
+
 			template<typename T>
 			bool operator( )( boost::wstring_ref property_name, T & out_value ) {
 				return helpers::get_property( m_obj, property_name, out_value );
@@ -122,9 +124,22 @@ namespace daw {
 			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> & com_ptr, boost::string_ref &query );
 
 			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> & query_enumerator );
-		}	// namespace impl
 
-		
+			//////////////////////////////////////////////////////////////////////////
+			/// Summary: Guarantee proper destruction of SAFEARRAY
+			//////////////////////////////////////////////////////////////////////////
+			struct SA {
+				SAFEARRAY *ptr;
+				SA();
+				~SA();
+				SA( SA const & ) = delete;
+				SA & operator=( SA const & ) = delete;
+				SA( SA && ) = default;
+				SA & operator=( SA && ) = default;
+			};	// struct SA
+
+			std::vector<std::wstring> get_property_names( CComPtr<IWbemClassObject>& ptr );
+		}	// namespace impl		
 
 		template<typename T>
 		std::vector<T> wmi_query( boost::wstring_ref host, boost::string_ref query, bool const prompt_credentials, std::function<T( IWbemWrapper )> callback, bool const use_ntlm = false ) {

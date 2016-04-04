@@ -61,6 +61,10 @@ namespace daw {
 
 		IWbemWrapper::IWbemWrapper( CComPtr<IWbemClassObject> obj ): m_obj( std::move( obj ) ) { }
 
+		CComPtr<IWbemClassObject>& IWbemWrapper::ptr( ) {
+			return m_obj;
+		}
+
 		bool IWbemWrapper::operator( )( boost::wstring_ref property_name, std::wstring& out_value ) {
 			return helpers::get_property( m_obj, property_name, out_value );
 		}
@@ -232,6 +236,37 @@ namespace daw {
 					throw StopProcessingException( );
 				}
 				return value;
+			}
+
+			SA::SA( ): ptr( nullptr ) { }
+
+			SA::~SA( ) {
+				if( ptr ) {
+					SafeArrayDestroy( ptr );
+				}
+			}
+
+			std::vector<std::wstring> get_property_names( CComPtr<IWbemClassObject>& ptr ) {				
+				std::vector<std::wstring> results;
+				SA sa;
+				HRESULT hres = ptr->GetNames( nullptr, WBEM_FLAG_ALWAYS | WBEM_FLAG_NONSYSTEM_ONLY, nullptr, &sa.ptr );
+				if( FAILED( hres ) ) {
+					std::stringstream ss;
+					ss << "GetNames failed: Error code = 0x" << std::hex << hres << ": ";
+					ss << _com_error( hres ).ErrorMessage( );
+					auto msg = ss.str( );
+					throw std::runtime_error( msg );
+				}
+				long current_prop, last_prop;
+				SafeArrayGetLBound( sa.ptr, 1, &current_prop );
+				SafeArrayGetUBound( sa.ptr, 1, &last_prop );
+				CComBSTR property_name;
+				for( auto n = current_prop; n <= last_prop; ++n ) {
+					hres = SafeArrayGetElement( sa.ptr, &n, &property_name );
+					assert( nullptr != property_name );
+					results.emplace_back( property_name, SysStringLen( property_name ) );
+				}
+				return results;
 			}
 
 			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> & com_ptr, boost::string_ref &query ) {

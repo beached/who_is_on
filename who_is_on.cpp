@@ -26,7 +26,6 @@
 #include <iostream>
 #include "wmi_query.h"
 
-
 struct result_row {
 	double sort_key;
 	std::wstring timestamp = L"";
@@ -47,7 +46,6 @@ void throw_on_false( bool test, boost::string_ref err_msg ) {
 		throw E( err_msg.to_string( ) );
 	}
 }
-
 
 int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
@@ -98,11 +96,11 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 		return result;
 	}();
 
-	try {
+	try {		
 		std::string const wmi_query_str = "Select * from Win32_NTLogEvent Where Logfile='Security' And (EventCode=4647 Or EventCode=4624)";
 		auto results = daw::wmi::wmi_query<result_row>( parsed_args.remote_computer_name, wmi_query_str, parsed_args.prompt_credentials, []( auto row_items ) {
 			using namespace daw::wmi;
-			using namespace daw::wmi::helpers;
+			using namespace daw::wmi::helpers;			
 
 			result_row current_result;
 			throw_on_false( row_items( L"EventCode", current_result.event_code ), "Property not found: EventCode" );			
@@ -126,15 +124,15 @@ int __cdecl wmain( int argc, wchar_t *argv[] ) {
 
 			// Computer Name
 						
-			throw_on_false( !row_items( L"ComputerName", current_result.computer_name ), "Property not found: ComputerName" );
-			
+			throw_on_false( row_items( L"ComputerName", current_result.computer_name ), "Property not found: ComputerName" );
+
 			//Time Generated
-			throw_on_false( !row_items( L"TimeGenerated", current_result.timestamp ), "Property not found: TimeGenerated" );
+			throw_on_false( row_items( L"TimeGenerated", current_result.timestamp ), "Property not found: TimeGenerated" );
 			current_result.sort_key = boost::lexical_cast<double>(current_result.timestamp.substr( 0, current_result.timestamp.size( ) - 4 ));
 			current_result.timestamp = parse_stringtime( current_result.timestamp );
 
 			// Category
-			throw_on_false( !row_items( L"CategoryString", current_result.category ), "Property not found: CategoryString" );
+			throw_on_false( row_items( L"CategoryString", current_result.category ), "Property not found: CategoryString" );
 
 			return current_result;
 		} );
