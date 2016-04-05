@@ -59,9 +59,9 @@ namespace daw {
 			}
 		}
 
-		IWbemWrapper::IWbemWrapper( CComPtr<IWbemClassObject> obj ): m_obj( std::move( obj ) ) { }
+		IWbemWrapper::IWbemWrapper( ComSmartPtr<IWbemClassObject> obj ): m_obj( std::move( obj ) ) { }
 
-		CComPtr<IWbemClassObject>& IWbemWrapper::ptr( ) {
+		ComSmartPtr<IWbemClassObject>& IWbemWrapper::ptr( ) {
 			return m_obj;
 		}
 
@@ -202,34 +202,34 @@ namespace daw {
 				return m_user_account;
 			}
 
-			CComPtr<IWbemLocator> obtain_wmi_locator( ) {
+			ComSmartPtr<IWbemLocator> obtain_wmi_locator( ) {
 				// Obtain the initial locator to WMI 
 				auto com_connection = intialize_COM( );
 
-				CComPtr<IWbemLocator> locator;
-				throw_on_fail( CoCreateInstance( CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator, reinterpret_cast<LPVOID *>(&locator) ), "Failed to create IWbemLocator object" );
+				ComSmartPtr<IWbemLocator> locator;
+				throw_on_fail( CoCreateInstance( CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator, reinterpret_cast<LPVOID *>(&locator.ptr) ), "Failed to create IWbemLocator object" );
 
 				return locator;
 			}
 
-			CComPtr<IWbemServices> connect_to_server( CComPtr<IWbemLocator> & com_ptr, boost::wstring_ref host, Authentication & auth ) {
-				CComPtr<IWbemServices> svc_ptr;
+			ComSmartPtr<IWbemServices> connect_to_server( ComSmartPtr<IWbemLocator> & com_ptr, boost::wstring_ref host, Authentication & auth ) {
+				ComSmartPtr<IWbemServices> svc_ptr;
 
 				// Connect to the remote root\cimv2 namespace
 				// and obtain pointer pSvc to make IWbemServices calls.
 				//---------------------------------------------------------
 				auto const wmi_str = L"\\\\" + host.to_string( ) + L"\\root\\cimv2";
-				throw_on_fail( com_ptr->ConnectServer( CComBSTR( wmi_str.c_str( ) ), auth.name_bstr( ), auth.password_bstr( ), nullptr, 0, auth.authoriy_bstr( ), nullptr, &svc_ptr ), "Failed to create IWbemLocator object." );
+				throw_on_fail( com_ptr->ConnectServer( _bstr_t( wmi_str.c_str( ) ), auth.name_bstr( ), auth.password_bstr( ), nullptr, 0, auth.authoriy_bstr( ), nullptr, &(svc_ptr.ptr) ), "Failed to create IWbemLocator object." );
 
 				return svc_ptr;
 			}
 
-			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> & query_enumerator ) {
-				CComPtr<IWbemClassObject> value;
+			ComSmartPtr<IWbemClassObject> enumerator_next( ComSmartPtr<IEnumWbemClassObject> & query_enumerator ) {
+				ComSmartPtr<IWbemClassObject> value;
 
 				ULONG value_type = 0;
 
-				throw_on_fail( query_enumerator->Next( WBEM_INFINITE, 1, &value, &value_type ), "Error getting next object from query." );
+				throw_on_fail( query_enumerator->Next( WBEM_INFINITE, 1, &(value.ptr), &value_type ), "Error getting next object from query." );
 				
 				if( 0 == value_type ) {
 					// TODO figure out better
@@ -246,7 +246,7 @@ namespace daw {
 				}
 			}
 
-			std::vector<std::wstring> get_property_names( CComPtr<IWbemClassObject>& ptr ) {				
+			std::vector<std::wstring> get_property_names( ComSmartPtr<IWbemClassObject>& ptr ) {				
 				std::vector<std::wstring> results;
 				SA sa;
 				HRESULT hres = ptr->GetNames( nullptr, WBEM_FLAG_ALWAYS | WBEM_FLAG_NONSYSTEM_ONLY, nullptr, &sa.ptr );
@@ -261,6 +261,7 @@ namespace daw {
 				SafeArrayGetLBound( sa.ptr, 1, &current_prop );
 				SafeArrayGetUBound( sa.ptr, 1, &last_prop );
 				CComBSTR property_name;
+				
 				for( auto n = current_prop; n <= last_prop; ++n ) {
 					hres = SafeArrayGetElement( sa.ptr, &n, &property_name );
 					assert( nullptr != property_name );
@@ -269,13 +270,13 @@ namespace daw {
 				return results;
 			}
 
-			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> & com_ptr, boost::string_ref &query ) {
-				auto const wmi_query = CComBSTR( query.data( ) );
-				auto const wql = CComBSTR( "WQL" );
+			ComSmartPtr<IEnumWbemClassObject> execute_wmi_query( ComSmartPtr<IWbemServices> & com_ptr, boost::string_ref &query ) {
+				auto const wmi_query = ComSmartBtr( query.data( ) );
+				auto const wql = ComSmartBtr( "WQL" );
 
 				// Use the IWbemServices pointer to make WMI query
-				CComPtr<IEnumWbemClassObject> pEnumerator = nullptr;
-				throw_on_fail( com_ptr->ExecQuery( wql, wmi_query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &pEnumerator ), "Query for Security Eventlog." );
+				ComSmartPtr<IEnumWbemClassObject> pEnumerator = nullptr;
+				throw_on_fail( com_ptr->ExecQuery( wql.ptr, wmi_query.ptr, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &(pEnumerator.ptr) ), "Query for Security Eventlog." );
 
 				return pEnumerator;
 			}

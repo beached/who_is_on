@@ -38,17 +38,17 @@
 namespace daw {
 	namespace wmi {
 		class IWbemWrapper {
-			CComPtr<IWbemClassObject> m_obj;
+			ComSmartPtr<IWbemClassObject> m_obj;
 
 		public:
-			explicit IWbemWrapper( CComPtr<IWbemClassObject> obj );
+			explicit IWbemWrapper( ComSmartPtr<IWbemClassObject> obj );
 			~IWbemWrapper( ) = default;
 			IWbemWrapper( IWbemWrapper const & ) = delete;
 			IWbemWrapper & operator=( IWbemWrapper const & ) = delete;
 			IWbemWrapper( IWbemWrapper && ) = default;
 			IWbemWrapper & operator=( IWbemWrapper && ) = default;
 
-			CComPtr<IWbemClassObject> & ptr( );
+			ComSmartPtr<IWbemClassObject> & ptr( );
 
 			template<typename T>
 			bool operator( )( boost::wstring_ref property_name, T & out_value ) {
@@ -107,23 +107,23 @@ namespace daw {
 			};	// class Authentication
 
 
-			CComPtr<IWbemLocator> obtain_wmi_locator( );
+			ComSmartPtr<IWbemLocator> obtain_wmi_locator( );
 
-			CComPtr<IWbemServices> connect_to_server( CComPtr<IWbemLocator> & com_ptr, boost::wstring_ref host, Authentication & auth );
+			ComSmartPtr<IWbemServices> connect_to_server( ComSmartPtr<IWbemLocator> & com_ptr, boost::wstring_ref host, Authentication & auth );
 
 			template<typename T>
-			void set_wmi_security( CComPtr<T> & com_ptr, Authentication &auth ) {
+			void set_wmi_security( ComSmartPtr<T> & com_ptr, Authentication& auth ) {
 				HRESULT hres;
-				if( FAILED( hres = CoSetProxyBlanket( com_ptr, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, auth.user_account( ), EOAC_NONE ) ) ) {
+				if( FAILED( hres = CoSetProxyBlanket( com_ptr.ptr, RPC_C_AUTHN_DEFAULT, RPC_C_AUTHZ_DEFAULT, COLE_DEFAULT_PRINCIPAL, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE, auth.user_account( ), EOAC_NONE ) ) ) {
 					std::stringstream ss;
 					ss << "Could not set proxy blanket. Error code = 0x" << std::hex << hres << ":" << _com_error( hres ).Description( );
 					throw std::runtime_error( ss.str( ) );
 				}
 			}
 
-			CComPtr<IEnumWbemClassObject> execute_wmi_query( CComPtr<IWbemServices> & com_ptr, boost::string_ref &query );
+			ComSmartPtr<IEnumWbemClassObject> execute_wmi_query( ComSmartPtr<IWbemServices> & com_ptr, boost::string_ref &query );
 
-			CComPtr<IWbemClassObject> enumerator_next( CComPtr<IEnumWbemClassObject> & query_enumerator );
+			ComSmartPtr<IWbemClassObject> enumerator_next( ComSmartPtr<IEnumWbemClassObject> & query_enumerator );
 
 			//////////////////////////////////////////////////////////////////////////
 			/// Summary: Guarantee proper destruction of SAFEARRAY
@@ -138,7 +138,7 @@ namespace daw {
 				SA & operator=( SA && ) = default;
 			};	// struct SA
 
-			std::vector<std::wstring> get_property_names( CComPtr<IWbemClassObject>& ptr );
+			std::vector<std::wstring> get_property_names( ComSmartPtr<IWbemClassObject>& ptr );
 		}	// namespace impl		
 
 		template<typename T>

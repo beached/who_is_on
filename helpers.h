@@ -50,14 +50,97 @@
 
 namespace daw {
 	namespace wmi {
+		struct ComSmartBtr {
+			BSTR ptr;
+			ComSmartBtr( );
+			~ComSmartBtr( );
+			ComSmartBtr( boost::string_ref str );
+			ComSmartBtr( boost::wstring_ref str );
+			ComSmartBtr( ComSmartBtr const & ) = delete;
+			ComSmartBtr & operator=( ComSmartBtr const & ) = delete;
+			ComSmartBtr( ComSmartBtr && ) = default;
+			ComSmartBtr & operator=( ComSmartBtr && ) = default;
+		};
+
+		template<typename T>
+		struct ComSmartPtr {
+			T * ptr;
+
+			ComSmartPtr( ): ptr( nullptr ) { }
+			~ComSmartPtr( ) {
+				Release( );
+			}
+
+			ComSmartPtr( T * other ): ptr( nullptr ) {
+				if( other ) {
+					other->AddRef( );
+					ptr = other;
+				}
+			}
+
+			ComSmartPtr( ComSmartPtr const & other ): ptr( nullptr ) {
+				if( other.ptr ) {
+					other.ptr->AddRef( );
+					ptr = other.ptr;
+				}
+			}
+
+			ComSmartPtr & operator=( ComSmartPtr const & rhs ) {
+				if( this != &rhs ) {
+					ComSmartPtr( rhs ).swap( *this );					
+				}
+				return *this;
+			}
+
+			T * operator->( ) {
+				return ptr;
+			}
+
+			T const * operator->( ) const {
+				return ptr;
+			}			
+
+			T & operator*( ) {
+				return *ptr;
+			}
+
+			T const & operator*( ) const {
+				return *ptr;
+			}
+
+			explicit operator bool( ) const {
+				return nullptr != ptr;
+			}
+
+			void swap( ComSmartPtr & other ) {
+				using std::swap;
+				swap( ptr, other.ptr );
+			}
+
+			bool operator!( ) const {
+				return ptr == nullptr;
+			}
+
+			void Release( ) {
+				T * tmp = ptr;
+				if( tmp ) {
+					ptr = nullptr;
+					tmp->Release( );
+				}
+			}
+
+			ComSmartPtr( ComSmartPtr && ) = default;
+			ComSmartPtr & operator=( ComSmartPtr && ) = default;
+		};
+
+
 		namespace helpers {
 			bool is_null( VARIANT const & v );
 			boost::optional<int> find_logon_type( std::wstring const & value );
 			boost::optional<std::wstring> find_account_name( std::wstring const & value );
 			boost::optional<std::wstring> find_account_domain( std::wstring const & value );
 			boost::optional<std::wstring> find_security_id( std::wstring const & value );
-			bool get_property( CComPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, std::wstring & out_value );
-			std::wstring get_string( CComVariant const & v );
+			bool get_property( ComSmartPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, std::wstring & out_value );
 			std::wstring get_string( VARIANT const & v );
 			bool equal_eh( boost::optional<std::wstring> const & value1, boost::wstring_ref const value2 );
 			std::wstring parse_stringtime( boost::wstring_ref time_string );
@@ -197,7 +280,7 @@ namespace daw {
 			}
 
 			template<typename T>
-			bool get_property( CComPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, T & out_value ) {
+			bool get_property( ComSmartPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, T & out_value ) {
 				CComVariant vtProp;
 				auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
 				if( FAILED( hr ) ) {

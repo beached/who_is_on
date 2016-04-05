@@ -21,9 +21,37 @@
 // SOFTWARE.
 
 #include "helpers.h"
+#include <cassert>
+#include <limits>
+
+#ifdef max
+#undef max
+#endif
 
 namespace daw {
 	namespace wmi {
+		ComSmartBtr::ComSmartBtr( ): ptr( nullptr ) { }
+
+		ComSmartBtr::~ComSmartBtr( ) {
+			if( ptr ) {
+				SysFreeString( ptr );
+			}
+		}
+
+		ComSmartBtr::ComSmartBtr( boost::string_ref str ): ptr( nullptr ) {
+			assert( std::numeric_limits<int>::max( ) >= str.size( ) );
+			auto wslen = MultiByteToWideChar( CP_ACP, 0, str.data( ), static_cast<int>(str.size( )), 0, 0 );
+			auto bstr = SysAllocStringLen( 0, wslen );
+			MultiByteToWideChar( CP_ACP, 0, str.data( ), static_cast<int>(str.size( )), bstr, wslen );
+			ptr = bstr;
+		}
+
+		ComSmartBtr::ComSmartBtr( boost::wstring_ref str ) {
+			assert( std::numeric_limits<int>::max( ) >= str.size( ) );
+			auto bstr = BSTR( str.data( ) );
+			ptr = bstr;
+		}
+
 		namespace helpers {
 			bool is_null( VARIANT const & v ) {
 				return VT_NULL == v.vt;
@@ -46,17 +74,12 @@ namespace daw {
 				return daw::wmi::helpers::find_value<std::wstring>( value, L"Account Domain:" );
 			}
 
-			std::wstring get_string( CComVariant const & v ) {
-				daw::wmi::helpers::validate_variant_type( v, VT_BSTR );
-				return std::wstring( v.bstrVal, SysStringLen( v.bstrVal ) );
-			}
-
 			std::wstring get_string( VARIANT const & v ) {
 				daw::wmi::helpers::validate_variant_type( v, VT_BSTR );
 				return std::wstring( v.bstrVal, SysStringLen( v.bstrVal ) );
 			}
 
-			bool get_property( CComPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, std::wstring & out_value ) {
+			bool get_property( ComSmartPtr<IWbemClassObject> & pclsObj, boost::wstring_ref property_name, std::wstring & out_value ) {
 				CComVariant vtProp;
 				auto hr = pclsObj->Get( property_name.data( ), 0, &vtProp, nullptr, nullptr );
 				if( FAILED( hr ) ) {
