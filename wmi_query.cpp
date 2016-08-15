@@ -199,6 +199,9 @@ namespace daw {
 			}
 
 			COAUTHIDENTITY* Authentication::user_account( ) {
+				if( m_use_token ) {
+					return nullptr;
+				}
 				return m_user_account;
 			}
 
@@ -218,8 +221,8 @@ namespace daw {
 				// Connect to the remote root\cimv2 namespace
 				// and obtain pointer pSvc to make IWbemServices calls.
 				//---------------------------------------------------------
-				auto const wmi_str = L"\\\\" + host.to_string( ) + L"\\root\\cimv2";
-				throw_on_fail( com_ptr->ConnectServer( _bstr_t( wmi_str.c_str( ) ), auth.name_bstr( ), auth.password_bstr( ), nullptr, 0, auth.authoriy_bstr( ), nullptr, &(svc_ptr.ptr) ), "Failed to create IWbemLocator object." );
+				auto const wmi_str = ComSmartBtr( L"\\\\" + host.to_string( ) + L"\\root\\cimv2" );
+				throw_on_fail( com_ptr->ConnectServer( wmi_str.ptr, auth.name_bstr( ), auth.password_bstr( ), nullptr, 0, auth.authoriy_bstr( ), nullptr, &(svc_ptr.ptr) ), "Failed to create IWbemLocator object." );
 
 				return svc_ptr;
 			}

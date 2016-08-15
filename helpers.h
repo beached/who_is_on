@@ -60,6 +60,7 @@ namespace daw {
 			ComSmartBtr & operator=( ComSmartBtr const & ) = delete;
 			ComSmartBtr( ComSmartBtr && ) = default;
 			ComSmartBtr & operator=( ComSmartBtr && ) = default;
+			operator BSTR( ) const;
 		};
 
 		template<typename T>

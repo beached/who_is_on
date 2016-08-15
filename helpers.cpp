@@ -52,6 +52,10 @@ namespace daw {
 			ptr = bstr;
 		}
 
+		ComSmartBtr::operator BSTR( ) const {
+			return ptr;
+		}
+
 		namespace helpers {
 			bool is_null( VARIANT const & v ) {
 				return VT_NULL == v.vt;
